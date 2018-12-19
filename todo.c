@@ -1,10 +1,35 @@
 /*
 * todo.c
  *
- *  Created on: 28 бреб 2018
+ *  Created on: 28 пїЅпїЅпїЅпїЅ 2018
  *      Author: lior
  */
 #include <linux/todo.h>
+
+/*find_queue: finds valid queue by PID and copies pointer to que.
+	Returns 0 for success, ESRCH for failure*/
+
+int find_queue(pid_t pid, struct task_struct* tsk)
+{
+    tsk = find_task_by_pid(pid);
+    if (tsk == NULL){
+        return ESRCH;
+    }
+    struct task_struct* tmp_task = tsk;
+    pid_t ppid = current->pid;
+    pid_t search_pid = tmp_task->pid;
+    int i = 0;
+    while (tmp_task != &init_task && search_pid != ppid)
+    {
+        tmp_task = tmp_task->p_pptr;
+        search_pid = tmp_task->pid;
+    }
+    if (search_pid != ppid){
+        return ESRCH;
+    }
+    return 0;
+}
+
 int sys_push_TODO(pid_t pid, const char* TODO_description, ssize_t description_size, time_t deadline){
 //	allocating and copying data to a new TODO
 	todo_stack* new_todo=(todo_stack*)kmalloc(sizeof(todo_stack));
@@ -46,9 +71,45 @@ int sys_push_TODO(pid_t pid, const char* TODO_description, ssize_t description_s
 
 }
 int sys_peek_TODO(pid_t pid, char* TODO_description, ssize_t* description_size, time_t* deadline){
-
+    struct task_struct* tsk = NULL;
+    int result = find_queue(pid, tsk);
+    if (result) {
+        return -result;
+    }
+    tsk = find_task_by_pid(pid);
+    struct todo_struct* todo = tsk->todo_head;
+    if (todo == NULL){
+        return -EINVAL;
+    }
+    if (description_size < todo->td_desc_size) {
+        return -EINVAL;
+    }
+    else if (todo->td_desc_size < description_size){
+        description_size = todo->td_desc_size;
+    }
+    if (copy_to_user(TODO_description, todo->td_description, description_size)){
+        return -EFAULT;
+    }
+    *deadline = tmp_todo->dead_line;
+    return 0;
 }
 int sys_pop_TODO(pid_t pid){
 
+    struct task_struct* tsk = NULL;
+    int result = find_queue(pid, tsk);
+    if (result) {
+        return -result;
+    }
+    tsk = find_task_by_pid(pid);
+    struct todo_struct* todo = tsk->todo_head;
+    if (todo == NULL){
+        return -EINVAL;
+    }
+    list_del(&todo->todo_list);
+    if (todo->td_description != NULL){
+        kfree(todo->td_description);
+    }
+    kfree(todo);
+    return 0;
 }
 
